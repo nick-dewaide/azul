@@ -1,9 +1,0 @@
-{
-  "name": "subproject",
-  "tree": {
-    "$path": "src"
-  },
-  "globIgnorePaths": [
-    "**/*.spec.lua"
-  ]
-}

@@ -1,1 +1,0 @@
--- ReplicatedStorage/hello.lua

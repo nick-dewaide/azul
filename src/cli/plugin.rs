@@ -1,102 +1,141 @@
-use std::{
-    fs::{self, File},
-    io::BufWriter,
-};
+use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
 
+use anyhow::{anyhow, Result};
 use clap::Parser;
-use memofs::{InMemoryFs, Vfs, VfsSnapshot};
-use roblox_install::RobloxStudio;
 
-use crate::serve_session::ServeSession;
+use crate::plugin_builder::build_plugin;
 
-static PLUGIN_BINCODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/plugin.bincode"));
-static PLUGIN_FILE_NAME: &str = "RojoManagedPlugin.rbxm";
+static PLUGIN_FILE_NAME: &str = "ScriptSync.rbxm";
 
-/// Install Rojo's plugin.
+/// Manage the ScriptSync Roblox Studio plugin.
 #[derive(Debug, Parser)]
 pub struct PluginCommand {
     #[clap(subcommand)]
     subcommand: PluginSubcommand,
 }
 
-/// Manages Rojo's Roblox Studio plugin.
+/// Manages the ScriptSync Roblox Studio plugin.
 #[derive(Debug, Parser)]
 pub enum PluginSubcommand {
-    /// Install the plugin in Roblox Studio's plugins folder. If the plugin is
-    /// already installed, installing it again will overwrite the current plugin
-    /// file.
+    /// Install the plugin in Roblox Studio's plugins folder.
     Install,
-
-    /// Removes the plugin if it is installed.
+    /// Remove the plugin if it is installed.
     Uninstall,
+    /// Build the plugin .rbxm to a specific path (for CI/distribution).
+    Build {
+        /// Output path for the .rbxm file.
+        #[clap(long, default_value = "ScriptSync.rbxm")]
+        output: PathBuf,
+    },
 }
 
 impl PluginCommand {
-    pub fn run(self) -> anyhow::Result<()> {
+    pub fn run(self) -> Result<()> {
         self.subcommand.run()
     }
 }
 
 impl PluginSubcommand {
-    pub fn run(self) -> anyhow::Result<()> {
+    pub fn run(self) -> Result<()> {
         match self {
             PluginSubcommand::Install => install_plugin(),
             PluginSubcommand::Uninstall => uninstall_plugin(),
+            PluginSubcommand::Build { output } => build_plugin_to(&output),
         }
     }
 }
 
-fn initialize_plugin() -> anyhow::Result<ServeSession> {
-    let plugin_snapshot: VfsSnapshot = bincode::deserialize(PLUGIN_BINCODE)
-        .expect("Rojo's plugin was not properly packed into Rojo's binary");
-
-    let mut in_memory_fs = InMemoryFs::new();
-    in_memory_fs.load_snapshot("/plugin", plugin_snapshot)?;
-
-    let vfs = Vfs::new(in_memory_fs);
-    Ok(ServeSession::new(vfs, "/plugin")?)
-}
-
-fn install_plugin() -> anyhow::Result<()> {
-    let studio = RobloxStudio::locate()?;
-
-    let plugins_folder_path = studio.plugins_path();
-
-    if !plugins_folder_path.exists() {
-        log::debug!("Creating Roblox Studio plugins folder");
-        fs::create_dir(plugins_folder_path)?;
+fn get_plugins_dir() -> Result<std::path::PathBuf> {
+    // Try roblox_install first
+    if let Ok(studio) = roblox_install::RobloxStudio::locate() {
+        return Ok(studio.plugins_path().to_path_buf());
     }
 
-    let plugin_path = plugins_folder_path.join(PLUGIN_FILE_NAME);
-    log::debug!("Writing plugin to {}", plugin_path.display());
+    // Fallback to manual detection
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(local_app_data) = dirs::data_local_dir() {
+            return Ok(local_app_data.join("Roblox").join("Plugins"));
+        }
+    }
 
-    let mut file = BufWriter::new(File::create(plugin_path)?);
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(home) = dirs::home_dir() {
+            return Ok(home.join("Library/Application Support/Roblox/Plugins"));
+        }
+    }
 
-    let session = initialize_plugin()?;
-    let tree = session.tree();
-    let root_id = tree.get_root_id();
+    Err(anyhow!("Could not find Roblox Studio plugins directory"))
+}
 
-    rbx_binary::to_writer(&mut file, tree.inner(), &[root_id])?;
+fn find_plugin_src() -> Result<PathBuf> {
+    // Look for plugin/src relative to the executable, then relative to cwd
+    let exe_dir = env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+
+    let candidates = [
+        exe_dir.as_ref().map(|d| d.join("../../plugin/src")),
+        exe_dir.as_ref().map(|d| d.join("../plugin/src")),
+        Some(PathBuf::from("plugin/src")),
+    ];
+
+    for candidate in candidates.into_iter().flatten() {
+        let canonical = candidate.canonicalize();
+        if let Ok(path) = canonical {
+            if path.join("init.server.lua").exists() {
+                return Ok(path);
+            }
+        }
+    }
+
+    Err(anyhow!(
+        "Could not find plugin source directory. Run this command from the ScriptSync repo root."
+    ))
+}
+
+fn install_plugin() -> Result<()> {
+    let plugins_dir = get_plugins_dir()?;
+
+    if !plugins_dir.exists() {
+        log::debug!("Creating Roblox Studio plugins folder");
+        fs::create_dir_all(&plugins_dir)?;
+    }
+
+    let plugin_path = plugins_dir.join(PLUGIN_FILE_NAME);
+
+    let plugin_src = find_plugin_src()?;
+    println!("Building plugin from {}...", plugin_src.display());
+    build_plugin(&plugin_src, &plugin_path)?;
+
+    println!("Plugin installed to {}", plugin_path.display());
+    println!("Restart Roblox Studio to load the plugin.");
 
     Ok(())
 }
 
-fn uninstall_plugin() -> anyhow::Result<()> {
-    let studio = RobloxStudio::locate()?;
+fn build_plugin_to(output: &Path) -> Result<()> {
+    let plugin_src = find_plugin_src()?;
+    println!("Building plugin from {}...", plugin_src.display());
+    build_plugin(&plugin_src, output)?;
+    println!("Plugin written to {}", output.display());
+    Ok(())
+}
 
-    let plugin_path = studio.plugins_path().join(PLUGIN_FILE_NAME);
+fn uninstall_plugin() -> Result<()> {
+    let plugins_dir = get_plugins_dir()?;
+    let plugin_path = plugins_dir.join(PLUGIN_FILE_NAME);
 
     if plugin_path.exists() {
-        log::debug!("Removing existing plugin from {}", plugin_path.display());
-        fs::remove_file(plugin_path)?;
+        log::debug!("Removing plugin from {}", plugin_path.display());
+        fs::remove_file(&plugin_path)?;
+        println!("Plugin removed.");
     } else {
-        log::debug!("Plugin not installed at {}", plugin_path.display());
+        println!("Plugin not installed at {}", plugin_path.display());
     }
 
     Ok(())
-}
-
-#[test]
-fn plugin_initialize() {
-    let _ = initialize_plugin().unwrap();
 }

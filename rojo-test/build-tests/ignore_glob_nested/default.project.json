@@ -1,9 +1,0 @@
-{
-  "name": "ignore_glob_nested",
-  "tree": {
-    "$path": "subproject"
-  },
-  "globIgnorePaths": [
-    "**/*.spec.lua"
-  ]
-}

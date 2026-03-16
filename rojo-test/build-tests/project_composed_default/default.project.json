@@ -1,9 +1,0 @@
-{
-	"name": "root",
-	"tree": {
-		"$className": "Folder",
-		"folder": {
-			"$path": "folder"
-		}
-	}
-}

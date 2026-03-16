@@ -1,7 +1,0 @@
-{
-  "name": "legacy-0.5.x-reserved-names",
-  "tree": {
-    "$className": "Folder"
-  },
-  "some field Rojo doesn't have": true
-}

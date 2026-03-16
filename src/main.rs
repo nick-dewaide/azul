@@ -3,15 +3,10 @@ use std::{env, panic, process};
 use backtrace::Backtrace;
 use clap::Parser;
 
-use librojo::cli::Options;
+use libscriptsync::cli::Options;
 
 fn main() {
-    #[cfg(feature = "profile-with-tracy")]
-    profiling::tracy_client::Client::start();
-
     panic::set_hook(Box::new(|panic_info| {
-        // PanicInfo's payload is usually a &'static str or String.
-        // See: https://doc.rust-lang.org/beta/std/panic/struct.PanicInfo.html#method.payload
         let message = match panic_info.payload().downcast_ref::<&str>() {
             Some(&message) => message.to_string(),
             None => match panic_info.payload().downcast_ref::<String>() {
@@ -21,25 +16,15 @@ fn main() {
         };
 
         log::error!(
-            "Rojo crashed! You are running Rojo {}.",
+            "ScriptSync crashed! You are running ScriptSync {}.",
             env!("CARGO_PKG_VERSION")
         );
-        log::error!("This is probably a Rojo bug.");
-        log::error!("");
-        log::error!(
-            "Please consider filing an issue: {}/issues",
-            env!("CARGO_PKG_REPOSITORY")
-        );
-        log::error!("");
         log::error!("Details: {}", message);
 
         if let Some(location) = panic_info.location() {
             log::error!("in file {} on line {}", location.file(), location.line());
         }
 
-        // When using the backtrace crate, we need to check the RUST_BACKTRACE
-        // environment variable ourselves. Once we switch to the (currently
-        // unstable) std::backtrace module, we won't need to do this anymore.
         let should_backtrace = env::var("RUST_BACKTRACE")
             .map(|var| var == "1")
             .unwrap_or(false);
@@ -59,8 +44,8 @@ fn main() {
 
     let log_filter = match options.global.verbosity {
         0 => "info",
-        1 => "info,librojo=debug",
-        2 => "info,librojo=trace",
+        1 => "info,libscriptsync=debug",
+        2 => "info,libscriptsync=trace",
         _ => "trace",
     };
 
@@ -69,7 +54,6 @@ fn main() {
     env_logger::Builder::from_env(log_env)
         .format_module_path(false)
         .format_timestamp(None)
-        // Indent following lines equal to the log level label, like `[ERROR] `
         .format_indent(Some(8))
         .write_style(options.global.color.into())
         .init();

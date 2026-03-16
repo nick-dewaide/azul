@@ -1,38 +1,27 @@
-//! Defines Rojo's CLI through clap types.
-
-mod build;
-mod doc;
-mod fmt_project;
 mod init;
 mod plugin;
+mod pull;
 mod serve;
-mod sourcemap;
-mod syncback;
-mod upload;
+mod status;
 
 use std::{borrow::Cow, env, path::Path, str::FromStr};
 
 use clap::Parser;
 use thiserror::Error;
 
-pub use self::build::BuildCommand;
-pub use self::doc::DocCommand;
-pub use self::fmt_project::FmtProjectCommand;
-pub use self::init::{InitCommand, InitKind};
+pub use self::init::InitCommand;
 pub use self::plugin::{PluginCommand, PluginSubcommand};
+pub use self::pull::PullCommand;
 pub use self::serve::ServeCommand;
-pub use self::sourcemap::SourcemapCommand;
-pub use self::syncback::SyncbackCommand;
-pub use self::upload::UploadCommand;
+pub use self::status::StatusCommand;
 
-/// Command line options that Rojo accepts, defined using the clap crate.
+/// ScriptSync — bidirectional Roblox script synchronization.
 #[derive(Debug, Parser)]
-#[clap(name = "Rojo", version, about)]
+#[clap(name = "ScriptSync", version, about)]
 pub struct Options {
     #[clap(flatten)]
     pub global: GlobalOptions,
 
-    /// Subcommand to run in this invocation.
     #[clap(subcommand)]
     pub subcommand: Subcommand,
 }
@@ -42,13 +31,9 @@ impl Options {
         match self.subcommand {
             Subcommand::Init(subcommand) => subcommand.run(),
             Subcommand::Serve(subcommand) => subcommand.run(self.global),
-            Subcommand::Build(subcommand) => subcommand.run(),
-            Subcommand::Upload(subcommand) => subcommand.run(),
-            Subcommand::Sourcemap(subcommand) => subcommand.run(),
-            Subcommand::FmtProject(subcommand) => subcommand.run(),
-            Subcommand::Doc(subcommand) => subcommand.run(),
+            Subcommand::Pull(subcommand) => subcommand.run(),
+            Subcommand::Status(subcommand) => subcommand.run(),
             Subcommand::Plugin(subcommand) => subcommand.run(),
-            Subcommand::Syncback(subcommand) => subcommand.run(self.global),
         }
     }
 }
@@ -114,15 +99,16 @@ pub struct ColorChoiceParseError {
 
 #[derive(Debug, Parser)]
 pub enum Subcommand {
+    /// Initialize a new ScriptSync project
     Init(InitCommand),
+    /// Start the sync server
     Serve(ServeCommand),
-    Build(BuildCommand),
-    Upload(UploadCommand),
-    Sourcemap(SourcemapCommand),
-    FmtProject(FmtProjectCommand),
-    Doc(DocCommand),
+    /// Pull scripts from a .rbxl/.rbxlx file
+    Pull(PullCommand),
+    /// Show tracked scripts and sync state
+    Status(StatusCommand),
+    /// Manage the Roblox Studio plugin
     Plugin(PluginCommand),
-    Syncback(SyncbackCommand),
 }
 
 pub(super) fn resolve_path(path: &Path) -> Cow<'_, Path> {

@@ -1,9 +1,0 @@
-{
-  "name": "optional",
-  "tree": {
-    "$className": "Folder",
-    "create-later": {
-      "$path": { "optional": "create-later" }
-    }
-  }
-}

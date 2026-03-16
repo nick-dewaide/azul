@@ -1,9 +1,0 @@
-{
-  "name": "plugins",
-  "tree": {
-    "$path": "src"
-  },
-  "plugins": [
-    "test-plugin.luau"
-  ]
-}
